@@ -47,6 +47,24 @@ file(GLOB SOURCES
     src/*
 )
 
+file(GLOB files assets/music/*)
+foreach(file ${files})
+	get_filename_component(name ${file} NAME)
+	configure_file(${file} assets/music/${name})
+endforeach()
+
+file(GLOB files assets/sfx/*)
+foreach(file ${files})
+	get_filename_component(name ${file} NAME)
+	configure_file(${file} assets/sfx/${name})
+endforeach()
+
+file(GLOB files assets/sprites/*)
+foreach(file ${files})
+	get_filename_component(name ${file} NAME)
+	configure_file(${file} assets/sprites/${name})
+endforeach()
+
 # TODO: Add tests and install targets if needed.
 add_executable(${PROJECT_NAME} ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE ${INCLUDES})
