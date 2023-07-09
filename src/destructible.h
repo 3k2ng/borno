@@ -8,9 +8,9 @@
 constexpr float TESTING_DUMMY_RADIUS = 20.f;
 constexpr int TESTING_DUMMY_HEALTH = 10;
 
-constexpr float POPCORN_0_RADIUS = 12.f;
-constexpr float POPCORN_0_SPEED = 400.f;
-constexpr int POPCORN_0_HEALTH = 2;
+constexpr float POPCORN_RADIUS = 12.f;
+constexpr float POPCORN_SPEED = 400.f;
+constexpr int POPCORN_HEALTH = 2;
 
 
 struct Destructible {

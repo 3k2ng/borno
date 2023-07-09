@@ -34,10 +34,10 @@ std::function<Vector2(float)> horizontal_bounce(Vector2 from, Vector2 velocity) 
 	};
 }
 
-std::function<Vector2(float)> quadratic_bezier(Vector2 from, Vector2 to, Vector2 control) {
+std::function<Vector2(float)> quadratic_bezier(Vector2 from, Vector2 to, Vector2 control, float travel_time = 1.0f) {
 	return [=](float u) -> Vector2 {
-		float omu = 1.0f - u;
-		return Vector2{ from.x * omu * omu + control.x * omu * u + to.x * u * u, from.y * omu * omu + control.y * omu * u + to.y * u * u };
+		u /= travel_time;
+		return Vector2Lerp(Vector2Lerp(from, control, u), Vector2Lerp(control, to, u), u);
 	};
 }
 
@@ -51,7 +51,11 @@ inline std::vector<Projectile> get_split_player_shot(Vector2 position) {
 }
 
 inline Destructible get_popcorn_0(Vector2 position, Vector2 direction, std::shared_ptr<Emitter> emitter = nullptr) {
-	return Destructible{ POPCORN_0_RADIUS, BLUE, linear(position, Vector2Scale(Vector2Normalize(direction), POPCORN_0_SPEED)), POPCORN_0_HEALTH, emitter };
+	return Destructible{ POPCORN_RADIUS, BLUE, linear(position, Vector2Scale(Vector2Normalize(direction), POPCORN_SPEED)), POPCORN_HEALTH, emitter };
+}
+
+inline Destructible get_popcorn_1(Vector2 from, Vector2 to, Vector2 control, float travel_time, std::shared_ptr<Emitter> emitter = nullptr) {
+	return Destructible{ POPCORN_RADIUS, BLUE, quadratic_bezier(from, to, control, travel_time), POPCORN_HEALTH, emitter };
 }
 
 std::function<std::vector<ProjectileSpawner>(float, float, Vector2, Vector2)> single_aimed_shot(float cd) {
@@ -66,10 +70,49 @@ std::function<std::vector<ProjectileSpawner>(float, float, Vector2, Vector2)> si
 	};
 }
 
+std::function<std::vector<ProjectileSpawner>(float, float, Vector2, Vector2)> linear_ring(int shots, float cd, float initial_angle = 0.0f) {
+	float segment_angle = 2.0f * PI / float(shots);
+	return [=](float et, float dt, Vector2 ep, Vector2 pp) -> std::vector<ProjectileSpawner> {
+		if (floorf((et + dt) / cd) > floorf(et / cd)) {
+			float tts = floorf((et + dt) / cd) * cd;
+			std::vector<ProjectileSpawner> pss;
+			for (int i = 0; i < shots; i++) {
+				float current_angle = initial_angle + float(i) * segment_angle;
+				pss.push_back(ProjectileSpawner{
+					tts,
+					Projectile{ BASIC_ENEMY_SHOT_RADIUS, PURPLE, linear(ep, Vector2{ cosf(current_angle) * BASIC_ENEMY_SHOT_SPEED, sinf(current_angle) * BASIC_ENEMY_SHOT_SPEED }), 0.1f}
+				});
+			}
+
+			return pss;
+		}
+		return {};
+	};
+}
+
+std::function<std::vector<ProjectileSpawner>(float, float, Vector2, Vector2)> linear_aim_ring_pattern(int shots, float radius, float cd, float initial_angle = 0.0f) {
+	float segment_angle = 2.0f * PI / float(shots);
+	return [=](float et, float dt, Vector2 ep, Vector2 pp) -> std::vector<ProjectileSpawner> {
+		if (floorf((et + dt) / cd) > floorf(et / cd)) {
+			float tts = floorf((et + dt) / cd) * cd;
+			std::vector<ProjectileSpawner> pss;
+			for (int i = 0; i < shots; i++) {
+				float current_angle = initial_angle + float(i) * segment_angle;
+				pss.push_back(ProjectileSpawner{
+					tts,
+					Projectile{ BASIC_ENEMY_SHOT_RADIUS, PURPLE, linear(Vector2{ ep.x + cosf(current_angle) * radius, ep.y + sinf(current_angle) * radius }, Vector2Scale(Vector2Normalize(Vector2Subtract(pp, ep)), BASIC_ENEMY_SHOT_SPEED)), 0.1f}
+					});
+			}
+
+			return pss;
+		}
+		return {};
+	};
+}
+
 struct DestructibleSpawner {
 	float cd_timer;
 	Destructible destructible_to_spawn;
-	//Emitter emitter_to_spawn;
 	bool Update(float delta) {
 		if (cd_timer <= 0.0f) {
 			return true;
@@ -232,12 +275,36 @@ struct Game {
 int main(void)
 {
 	std::queue<DestructibleSpawner> test_level;
-	for (int i = 0; i < 20; i++) {
-		Emitter sae = Emitter{ single_aimed_shot(0.5f) };
+	for (int i = 0; i < 8; i++) {
 		test_level.push(
 			DestructibleSpawner{
 				0.4f,
-				get_popcorn_0(Vector2Add(PLAYING_FIELD_TOP_LEFT, Vector2{0.0f, 2 * TILE_HEIGHT}), Vector2{100.0f, float(GetRandomValue(0, 20))}, std::make_shared<Emitter>(Emitter{ single_aimed_shot(0.5f) }))
+				get_popcorn_1(
+					PLAYING_FIELD_TOP_LEFT,
+					Vector2{ PLAYING_FIELD_BOTTOM_RIGHT.x, PLAYING_FIELD_TOP_LEFT.y },
+					Vector2{
+						(PLAYING_FIELD_OFFSET_HORIZONTAL_TILES + PLAYING_FIELD_HORIZONTAL_TILES / 2) * TILE_WIDTH,
+						(PLAYING_FIELD_OFFSET_VERTICAL_TILES + PLAYING_FIELD_VERTICAL_TILES / 2) * TILE_HEIGHT
+					},
+					1.8f,
+					std::make_shared<Emitter>(Emitter{single_aimed_shot(0.5f)}))
+			}
+		);
+	}
+	for (int i = 0; i < 2; i++) {
+		test_level.push(
+			DestructibleSpawner{
+				0.4f,
+				get_popcorn_1(
+					PLAYING_FIELD_TOP_LEFT,
+					Vector2{ PLAYING_FIELD_BOTTOM_RIGHT.x, PLAYING_FIELD_TOP_LEFT.y },
+					Vector2{
+						(PLAYING_FIELD_OFFSET_HORIZONTAL_TILES + PLAYING_FIELD_HORIZONTAL_TILES / 2) * TILE_WIDTH,
+						(PLAYING_FIELD_OFFSET_VERTICAL_TILES + PLAYING_FIELD_VERTICAL_TILES / 2) * TILE_HEIGHT
+					},
+					1.8f,
+					std::make_shared<Emitter>(Emitter{linear_aim_ring_pattern(7, 50.0f, 0.5f)})
+				)
 			}
 		);
 	}
@@ -245,6 +312,7 @@ int main(void)
 	Game game(test_level);
 
 	InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "borno");
+	InitAudioDevice();
 
 	SetTargetFPS(120);
 	while (!WindowShouldClose())
@@ -264,6 +332,7 @@ int main(void)
 		EndDrawing();
 	}
 
+	CloseAudioDevice();
 	CloseWindow();
 	return 0;
 }
