@@ -5,6 +5,7 @@
 #include <vector>
 #include <optional>
 #include <queue>
+#include <functional>
 
 #include <iostream>
 
@@ -14,16 +15,67 @@
 #include "destructible.h"
 #include "projectile.h"
 
-struct Spawner {
-	float timer;
+std::function<Vector2(float)> linear(Vector2 from, Vector2 velocity) {
+	return [=](float t) -> Vector2 { return Vector2Add(from, Vector2Scale(velocity, t)); };
+}
+
+std::function<Vector2(float)> accelerated(Vector2 from, Vector2 velocity, Vector2 acceleration) {
+	return [=](float t) -> Vector2 { return Vector2Add(from, Vector2Add(Vector2Scale(velocity, t), Vector2Scale(acceleration, 0.5f * t * t))); };
+}
+
+std::function<Vector2(float)> horizontal_bounce(Vector2 from, Vector2 velocity) {
+	bool nvx = velocity.x < 0;
+	return [=](float t) -> Vector2 {
+		float horizontal_distance = from.x + velocity.x * t - PLAYING_FIELD_TOP_LEFT.x;
+		int bounces = int(fabsf(horizontal_distance / PLAYING_FIELD_RECT.width)) + (nvx and horizontal_distance < 0) ? 1 : 0;
+		float local_distance = fmodf(fmodf(horizontal_distance, PLAYING_FIELD_RECT.width) + PLAYING_FIELD_RECT.width, PLAYING_FIELD_RECT.width);
+
+		return Vector2{ PLAYING_FIELD_TOP_LEFT.x + (bounces % 2 == 0 ? local_distance : PLAYING_FIELD_RECT.width - local_distance), from.y + velocity.y * t };
+	};
+}
+
+std::function<Vector2(float)> quadratic_bezier(Vector2 from, Vector2 to, Vector2 control) {
+	return [=](float u) -> Vector2 {
+		float omu = 1.0f - u;
+		return Vector2{ from.x * omu * omu + control.x * omu * u + to.x * u * u, from.y * omu * omu + control.y * omu * u + to.y * u * u };
+	};
+}
+
+inline std::vector<Projectile> get_basic_player_shot(Vector2 position) {
+	return { Projectile{ BASIC_PLAYER_SHOT_RADIUS, RED, linear(position, Vector2{ 0.0f, -BASIC_PLAYER_SHOT_SPEED })} };
+}
+
+inline std::vector<Projectile> get_split_player_shot(Vector2 position) {
+	return { Projectile{ SPLIT_PLAYER_SHOT_RADIUS, RED, horizontal_bounce(position, Vector2{ -SPLIT_PLAYER_SHOT_H_SPEED, -SPLIT_PLAYER_SHOT_V_SPEED })},
+		Projectile{ SPLIT_PLAYER_SHOT_RADIUS, RED, horizontal_bounce(position, Vector2{ SPLIT_PLAYER_SHOT_H_SPEED, -SPLIT_PLAYER_SHOT_V_SPEED })} };
+}
+
+inline Destructible get_popcorn_0(Vector2 position, Vector2 direction, std::shared_ptr<Emitter> emitter = nullptr) {
+	return Destructible{ POPCORN_0_RADIUS, BLUE, linear(position, Vector2Scale(Vector2Normalize(direction), POPCORN_0_SPEED)), POPCORN_0_HEALTH, emitter };
+}
+
+std::function<std::vector<ProjectileSpawner>(float, float, Vector2, Vector2)> single_aimed_shot(float cd) {
+	return [=](float et, float dt, Vector2 ep, Vector2 pp) -> std::vector<ProjectileSpawner> {
+		if (floorf((et + dt) / cd) > floorf(et / cd)) return {
+			ProjectileSpawner{
+				floorf((et + dt) / cd) * cd,
+				Projectile{ BASIC_ENEMY_SHOT_RADIUS, PURPLE, linear(ep, Vector2Scale(Vector2Normalize(Vector2Subtract(pp, ep)), BASIC_ENEMY_SHOT_SPEED)), 0.1f}
+			}
+		};
+		return {};
+	};
+}
+
+struct DestructibleSpawner {
+	float cd_timer;
 	Destructible destructible_to_spawn;
 	//Emitter emitter_to_spawn;
 	bool Update(float delta) {
-		if (timer <= 0.0f) {
+		if (cd_timer <= 0.0f) {
 			return true;
 		}
-		if (timer > 0.0f) {
-			timer -= delta;
+		if (cd_timer > 0.0f) {
+			cd_timer -= delta;
 		}
 		return false;
 	}
@@ -52,8 +104,6 @@ struct Player {
 	float shoot_timer = 0.0f;
 
 	std::vector<Projectile> Update(float delta) {
-		std::vector<Projectile> pp_to_insert;
-
 		bool is_focus = IsKeyDown(KEY_LEFT_SHIFT);
 
 		velocity = Vector2Scale(get_input_vector(KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN), is_focus ? PLAYER_FOCUS_SPEED : PLAYER_NORMAL_SPEED);
@@ -61,20 +111,17 @@ struct Player {
 		position = Vector2Clamp(position, PLAYING_FIELD_TOP_LEFT, PLAYING_FIELD_BOTTOM_RIGHT);
 
 		if (IsKeyDown(KEY_Z) and shoot_timer <= 0.0f) {
-			if (is_focus) {
-				pp_to_insert.push_back(Projectile{ position, Vector2{ SPLIT_PLAYER_SHOT_H_SPEED, -SPLIT_PLAYER_SHOT_V_SPEED }, Projectile::Type::SPLIT_PLAYER_SHOT });
-				pp_to_insert.push_back(Projectile{ position, Vector2{ -SPLIT_PLAYER_SHOT_H_SPEED, -SPLIT_PLAYER_SHOT_V_SPEED }, Projectile::Type::SPLIT_PLAYER_SHOT });
-			}
-			else {
-				pp_to_insert.push_back(Projectile{ position, Vector2{0.0f, -BASIC_PLAYER_SHOT_SPEED}, Projectile::Type::BASIC_PLAYER_SHOT });
-			}
 			shoot_timer = PLAYER_SHOOT_CD;
+			if (is_focus) {
+				return get_split_player_shot(position);
+			}
+			return get_basic_player_shot(position);
 		}
 		else if (shoot_timer > 0.0f) {
 			shoot_timer -= delta;
 		}
 
-		return pp_to_insert;
+		return {};
 	}
 
 	void Draw(void) {
@@ -84,13 +131,13 @@ struct Player {
 
 struct Game {
 	Player player{};
-	std::queue<Spawner> spawn_queue;
+	std::queue<DestructibleSpawner> spawn_queue;
 	std::list<Projectile> player_projectile_list;
 	std::list<Projectile> enemy_projectile_list;
 	std::list<Destructible> destructible_list;
-	std::list<Emitter> emitter_list;
+	std::list<std::shared_ptr<Emitter>> emitter_list;
 
-	Game(std::queue<Spawner> level_spawn_queue) {
+	Game(std::queue<DestructibleSpawner> level_spawn_queue) {
 		player.position = PLAYER_INITIAL_VECTOR;
 		spawn_queue = level_spawn_queue;
 	}
@@ -102,16 +149,11 @@ struct Game {
 	void Update(float delta) {
 		if (not spawn_queue.empty() and spawn_queue.front().Update(delta)) {
 			destructible_list.push_back(spawn_queue.front().destructible_to_spawn);
-			spawn_queue.pop();
-		}
-
-		for (Projectile& pp : player.Update(delta)) {
-			player_projectile_list.push_back(pp);
-		}
-		for (Emitter& emitter : emitter_list) {
-			for (Projectile& ep : emitter.Update(delta, player.position)) {
-				enemy_projectile_list.push_back(ep);
+			if (destructible_list.back().contained_emitter != nullptr) {
+				emitter_list.push_back(destructible_list.back().contained_emitter);
+				destructible_list.back().contained_emitter->it = std::prev(emitter_list.end());
 			}
+			spawn_queue.pop();
 		}
 		std::vector<std::list<Projectile>::iterator> pp_to_remove;
 		for (std::list<Projectile>::iterator it = player_projectile_list.begin(); it != player_projectile_list.end(); it = std::next(it)) {
@@ -119,22 +161,9 @@ struct Game {
 				pp_to_remove.push_back(it);
 			}
 			else {
-				float damage_to_deal = 0.0f;
-				switch (it->type)
-				{
-				case(Projectile::Type::BASIC_PLAYER_SHOT):
-					damage_to_deal = BASIC_PLAYER_SHOT_DAMAGE;
-					break;
-				case(Projectile::Type::SPLIT_PLAYER_SHOT):
-					damage_to_deal = SPLIT_PLAYER_SHOT_DAMAGE;
-					break;
-				default:
-					break;
-				}
-
 				for (std::list<Destructible>::iterator d_it = destructible_list.begin(); d_it != destructible_list.end(); d_it = std::next(d_it)) {
-					if (it->Collide(d_it->position, d_it->GetRadius())) {
-						if (d_it->Hurt(damage_to_deal)) {
+					if (it->Collide(d_it->GetPosition(), d_it->radius)) {
+						if (d_it->Hurt()) {
 							if (d_it->contained_emitter != nullptr) {
 								emitter_list.erase(d_it->contained_emitter->it);
 							}
@@ -144,6 +173,14 @@ struct Game {
 						break;
 					}
 				}
+			}
+		}
+		for (Projectile& pp : player.Update(delta)) {
+			player_projectile_list.push_back(pp);
+		}
+		for (std::shared_ptr<Emitter> emitter : emitter_list) {
+			for (Projectile& ep : emitter->Update(delta, player.position)) {
+				enemy_projectile_list.push_back(ep);
 			}
 		}
 		for (std::list<Projectile>::iterator it : pp_to_remove) {
@@ -194,18 +231,13 @@ struct Game {
 
 int main(void)
 {
-	std::queue<Spawner> test_level;
-
+	std::queue<DestructibleSpawner> test_level;
 	for (int i = 0; i < 20; i++) {
+		Emitter sae = Emitter{ single_aimed_shot(0.5f) };
 		test_level.push(
-			Spawner{
+			DestructibleSpawner{
 				0.4f,
-				Destructible(
-					Vector2Add(PLAYING_FIELD_TOP_LEFT, Vector2{0.0f, 2 * TILE_HEIGHT}),
-					Destructible::Type::POPCORN_0,
-					nullptr,
-					Vector2Scale(Vector2Normalize(Vector2{100.0f, float(GetRandomValue(0, 20))}), POPCORN_0_SPEED)
-				)
+				get_popcorn_0(Vector2Add(PLAYING_FIELD_TOP_LEFT, Vector2{0.0f, 2 * TILE_HEIGHT}), Vector2{100.0f, float(GetRandomValue(0, 20))}, std::make_shared<Emitter>(Emitter{ single_aimed_shot(0.5f) }))
 			}
 		);
 	}

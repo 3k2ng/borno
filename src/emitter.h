@@ -7,35 +7,34 @@
 
 constexpr float TESTING_EMITTER_SHOT_CD = 1.0f;
 
-struct Emitter {
-	std::list<Emitter>::iterator it;
-	Vector2 position;
-	float shoot_timer;
-	enum class Type {
-		TESTING_EMITTER
+struct ProjectileSpawner {
+	float time_to_spawn;
+	Projectile projectile_to_spawn;
+};
+
+struct PSCompare {
+	bool operator() (ProjectileSpawner& ls, ProjectileSpawner& rs) {
+		return ls.time_to_spawn > rs.time_to_spawn;
 	};
-	Type type;
+};
+
+struct Emitter {
+	std::function<std::vector<ProjectileSpawner>(float, float, Vector2, Vector2)> spawn_fn;
+	std::list<std::shared_ptr<Emitter>>::iterator it;
+	Vector2 position;
+	std::priority_queue<ProjectileSpawner, std::vector<ProjectileSpawner>, PSCompare> ps_queue;
+	float et = 0.0f;
 	std::vector<Projectile> Update(float delta, Vector2 player_pos) {
-		std::vector<Projectile> ep_to_insert;
-		if (shoot_timer <= 0.0f) {
-			switch (type)
-			{
-			case Emitter::Type::TESTING_EMITTER:
-				ep_to_insert.push_back(
-					Projectile{
-						position,
-						Vector2Scale(Vector2Normalize(Vector2Subtract(player_pos, position)), BASIC_ENEMY_SHOT_SPEED),
-						Projectile::Type::BASIC_ENEMY_SHOT
-					});
-				shoot_timer = TESTING_EMITTER_SHOT_CD;
-				break;
-			default:
-				break;
-			}
+		std::vector<ProjectileSpawner> nps = spawn_fn(et, delta, position, player_pos);
+		for (ProjectileSpawner ps : nps) {
+			ps_queue.push(ps);
 		}
-		else {
-			shoot_timer -= delta;
+		std::vector<Projectile> pts;
+		et += delta;
+		while (not ps_queue.empty() and ps_queue.top().time_to_spawn <= et) {
+			pts.push_back(ps_queue.top().projectile_to_spawn);
+			ps_queue.pop();
 		}
-		return ep_to_insert;
+		return pts;
 	}
 };
