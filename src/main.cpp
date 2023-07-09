@@ -89,21 +89,20 @@ struct Game {
 
 	Game() {
 		player = Player{ PLAYER_INITIAL_VECTOR, Vector2Zero() };
-		emitter_list.push_back(Emitter{
-			Vector2{
+		emitter_list.emplace_back();
+		emitter_list.back().it = std::prev(emitter_list.end());
+		emitter_list.back().position = Vector2{
 				(PLAYING_FIELD_OFFSET_HORIZONTAL_TILES + PLAYING_FIELD_HORIZONTAL_TILES / 2) * TILE_WIDTH,
 				(PLAYING_FIELD_OFFSET_VERTICAL_TILES + PLAYING_FIELD_VERTICAL_TILES / 2) * TILE_HEIGHT
-			},
-			0.0f,
-			Emitter::Type::TESTING_EMITTER
-			});
+		};
+		emitter_list.back().type = Emitter::Type::TESTING_EMITTER;
 		destructible_list.emplace_back(
 			Vector2{
 				(PLAYING_FIELD_OFFSET_HORIZONTAL_TILES + PLAYING_FIELD_HORIZONTAL_TILES / 2) * TILE_WIDTH,
 				(PLAYING_FIELD_OFFSET_VERTICAL_TILES + PLAYING_FIELD_VERTICAL_TILES / 2) * TILE_HEIGHT
 			},
 			Destructible::Type::TESTING_DUMMY,
-			std::prev(emitter_list.end())
+			&emitter_list.back()
 		);
 	}
 
@@ -125,8 +124,8 @@ struct Game {
 				for (std::list<Destructible>::iterator d_it = destructible_list.begin(); d_it != destructible_list.end(); d_it = std::next(d_it)) {
 					if (it->Collide(d_it->position, d_it->GetRadius())) {
 						if (d_it->Hurt(0.0f)) {
-							if (d_it->ce_it != emitter_list.end()) {
-								emitter_list.erase(d_it->ce_it);
+							if (d_it->contained_emitter != nullptr) {
+								emitter_list.erase(d_it->contained_emitter->it);
 							}
 							destructible_list.erase(d_it);
 						}

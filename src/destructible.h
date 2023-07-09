@@ -10,16 +10,16 @@ constexpr float TESTING_DUMMY_RADIUS = 20.f;
 struct Destructible {
 	Vector2 position;
 	Vector2 velocity;
-	std::list<Emitter>::iterator ce_it;
+	Emitter* contained_emitter;
 	enum class Type {
 		TESTING_DUMMY
 	};
 	Type type;
 
-	Destructible(Vector2 p, Destructible::Type d_type, std::list<Emitter>::iterator it) {
-		position = p;
-		type = d_type;
-		ce_it = it;
+	Destructible(Vector2 initial_pos, Destructible::Type t, Emitter* e) {
+		position = initial_pos;
+		type = t;
+		contained_emitter = e;
 		switch (type)
 		{
 		case Destructible::Type::TESTING_DUMMY:

@@ -8,6 +8,7 @@
 constexpr float TESTING_EMITTER_SHOT_CD = 1.0f;
 
 struct Emitter {
+	std::list<Emitter>::iterator it;
 	Vector2 position;
 	float shoot_timer;
 	enum class Type {
