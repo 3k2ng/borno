@@ -58,6 +58,6 @@ constexpr float PLAYER_HITBOX_RADIUS = 4.f;
 constexpr float PLAYER_NORMAL_SPEED = 300.f;
 constexpr float PLAYER_FOCUS_SPEED = 0.5f * PLAYER_NORMAL_SPEED;
 
-constexpr float PLAYER_SHOOT_CD = 0.05f;
+constexpr float PLAYER_SHOOT_CD = 0.04f;
 
 constexpr float FAST_FORWARD_THRESHOLD = 1.f;

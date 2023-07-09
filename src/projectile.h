@@ -8,14 +8,16 @@ inline float sqr(float f) {
 }
 
 constexpr float BASIC_PLAYER_SHOT_RADIUS = 8.0f;
-constexpr float BASIC_PLAYER_SHOT_SPEED = 600.0f;
+constexpr float BASIC_PLAYER_SHOT_SPEED = 800.0f;
+constexpr float BASIC_PLAYER_SHOT_DAMAGE = 10.f;
 
 constexpr float SPLIT_PLAYER_SHOT_RADIUS = 8.0f;
 constexpr float SPLIT_PLAYER_SHOT_V_SPEED = 600.0f;
 constexpr float SPLIT_PLAYER_SHOT_H_SPEED = 600.0f;
+constexpr float SPLIT_PLAYER_SHOT_DAMAGE = 6.f;
 
 constexpr float BASIC_ENEMY_SHOT_RADIUS = 8.0f;
-constexpr float BASIC_ENEMY_SHOT_SPEED = 200.0f;
+constexpr float BASIC_ENEMY_SHOT_SPEED = 400.0f;
 
 struct Projectile {
 	Vector2 position;
