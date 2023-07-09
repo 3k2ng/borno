@@ -1,6 +1,5 @@
 #include "raylib.h"
 #include "raymath.h"
-#include "rlgl.h"
 
 #include <list>
 #include <vector>
@@ -10,119 +9,22 @@
 
 #include "config.h"
 
-constexpr float TESTING_DUMMY_RADIUS = 20.f;
-
-struct Destructible {
-	Vector2 position;
-	Vector2 velocity;
-	enum class Type {
-		TESTING_DUMMY
-	};
-	Type type;
-	void Draw(void) {
-		switch (type)
-		{
-		case Destructible::Type::TESTING_DUMMY:
-			DrawCircleV(position, TESTING_DUMMY_RADIUS, BLUE);
-			break;
-		default:
-			break;
-		}
-	}
-	bool Hurt(float damage_value) {
-		return false;
-	}
-	float GetRadius(void) {
-		switch (type)
-		{
-		case Destructible::Type::TESTING_DUMMY:
-			return TESTING_DUMMY_RADIUS;
-		default:
-			return 0.0f;
-		}
-	}
-};
-
-constexpr float BASIC_PLAYER_SHOT_RADIUS = 8.0f;
-constexpr float BASIC_PLAYER_SHOT_SPEED = 600.0f;
-
-constexpr float SPLIT_PLAYER_SHOT_RADIUS = 8.0f;
-constexpr float SPLIT_PLAYER_SHOT_V_SPEED = 600.0f;
-constexpr float SPLIT_PLAYER_SHOT_H_SPEED = 600.0f;
-struct Projectile {
-	Vector2 position;
-	Vector2 velocity;
-	enum class Type {
-		BASIC_PLAYER_SHOT,
-		SPLIT_PLAYER_SHOT
-	};
-	Type type;
-	bool Update(float delta) {
-		switch (type)
-		{
-		case Projectile::Type::BASIC_PLAYER_SHOT:
-			break;
-		case Projectile::Type::SPLIT_PLAYER_SHOT:
-			if (position.x < PLAYING_FIELD_TOP_LEFT.x and velocity.x < 0.0f) velocity.x *= -1.0f;
-			else if (position.x > PLAYING_FIELD_BOTTOM_RIGHT.x and velocity.x > 0.0f) velocity.x *= -1.0f;
-			break;
-		default:
-			break;
-		}
-
-		position = Vector2Add(position, Vector2Scale(velocity, delta));
-
-		if (position.x < KILLING_FIELD_TOP_LEFT.x or
-			position.x > KILLING_FIELD_BOTTOM_RIGHT.x or
-			position.y < KILLING_FIELD_TOP_LEFT.y or
-			position.y > KILLING_FIELD_BOTTOM_RIGHT.y) {
-			return true;
-		}
-
-		return false;
-	}
-
-	bool Collide(Vector2 c_position, float c_radius) {
-		switch (type)
-		{
-		case Projectile::Type::BASIC_PLAYER_SHOT:
-			return Vector2DistanceSqr(position, c_position) < (BASIC_PLAYER_SHOT_RADIUS + c_radius) * (BASIC_PLAYER_SHOT_RADIUS + c_radius);
-			break;
-		case Projectile::Type::SPLIT_PLAYER_SHOT:
-			return Vector2DistanceSqr(position, c_position) < (SPLIT_PLAYER_SHOT_RADIUS + c_radius) * (SPLIT_PLAYER_SHOT_RADIUS + c_radius);
-			break;
-		default:
-			break;
-		}
-		return false;
-	}
-
-	void Draw(void) {
-		switch (type)
-		{
-		case Type::BASIC_PLAYER_SHOT:
-		{
-			DrawCircleV(position, BASIC_PLAYER_SHOT_RADIUS, RED);
-		}
-		case Type::SPLIT_PLAYER_SHOT:
-		{
-			DrawCircleV(position, SPLIT_PLAYER_SHOT_RADIUS, RED);
-		}
-		break;
-		default:
-			break;
-		}
-	}
-};
-
-struct Emitter {
-	std::vector<Projectile> Update(void) {
-
-	}
-};
+#include "emitter.h"
+#include "destructible.h"
+#include "projectile.h"
 
 struct Spawner {
-
+	float timer;
+	Destructible to_spawn;
+	bool Update(float delta) {
+		if (timer <= 0.0f) {
+			return true;
+		}
+		if (timer > 0.0f) {
+			timer -= delta;
+		}
+		return false;
+	}
 };
 
 inline Vector2 get_input_vector(int neg_x, int pos_x, int neg_y, int pos_y) {
@@ -148,7 +50,7 @@ struct Player {
 	float shoot_timer = 0.0f;
 
 	std::vector<Projectile> Update(float delta) {
-		std::vector<Projectile> to_insert;
+		std::vector<Projectile> pp_to_insert;
 
 		bool is_focus = IsKeyDown(KEY_LEFT_SHIFT);
 
@@ -158,11 +60,11 @@ struct Player {
 
 		if (IsKeyDown(KEY_Z) and shoot_timer <= 0.0f) {
 			if (is_focus) {
-				to_insert.push_back(Projectile{ position, Vector2{SPLIT_PLAYER_SHOT_H_SPEED, -SPLIT_PLAYER_SHOT_V_SPEED}, Projectile::Type::SPLIT_PLAYER_SHOT });
-				to_insert.push_back(Projectile{ position, Vector2{-SPLIT_PLAYER_SHOT_H_SPEED, -SPLIT_PLAYER_SHOT_V_SPEED}, Projectile::Type::SPLIT_PLAYER_SHOT });
+				pp_to_insert.push_back(Projectile{ position, Vector2{SPLIT_PLAYER_SHOT_H_SPEED, -SPLIT_PLAYER_SHOT_V_SPEED}, Projectile::Type::SPLIT_PLAYER_SHOT });
+				pp_to_insert.push_back(Projectile{ position, Vector2{-SPLIT_PLAYER_SHOT_H_SPEED, -SPLIT_PLAYER_SHOT_V_SPEED}, Projectile::Type::SPLIT_PLAYER_SHOT });
 			}
 			else {
-				to_insert.push_back(Projectile{ position, Vector2{0.0f, -BASIC_PLAYER_SHOT_SPEED}, Projectile::Type::BASIC_PLAYER_SHOT });
+				pp_to_insert.push_back(Projectile{ position, Vector2{0.0f, -BASIC_PLAYER_SHOT_SPEED}, Projectile::Type::BASIC_PLAYER_SHOT });
 			}
 			shoot_timer = PLAYER_SHOOT_CD;
 		}
@@ -170,7 +72,7 @@ struct Player {
 			shoot_timer -= delta;
 		}
 
-		return to_insert;
+		return pp_to_insert;
 	}
 
 	void Draw(void) {
@@ -183,42 +85,74 @@ struct Game {
 	std::list<Projectile> player_projectile_list;
 	std::list<Projectile> enemy_projectile_list;
 	std::list<Destructible> destructible_list;
+	std::list<Emitter> emitter_list;
 
 	Game() {
 		player = Player{ PLAYER_INITIAL_VECTOR, Vector2Zero() };
-		destructible_list.push_back(Destructible{
+		emitter_list.push_back(Emitter{
 			Vector2{
 				(PLAYING_FIELD_OFFSET_HORIZONTAL_TILES + PLAYING_FIELD_HORIZONTAL_TILES / 2) * TILE_WIDTH,
 				(PLAYING_FIELD_OFFSET_VERTICAL_TILES + PLAYING_FIELD_VERTICAL_TILES / 2) * TILE_HEIGHT
 			},
-			Vector2{ 0.0f, 0.0f }
+			0.0f,
+			Emitter::Type::TESTING_EMITTER
 			});
+		destructible_list.emplace_back(
+			Vector2{
+				(PLAYING_FIELD_OFFSET_HORIZONTAL_TILES + PLAYING_FIELD_HORIZONTAL_TILES / 2) * TILE_WIDTH,
+				(PLAYING_FIELD_OFFSET_VERTICAL_TILES + PLAYING_FIELD_VERTICAL_TILES / 2) * TILE_HEIGHT
+			},
+			Destructible::Type::TESTING_DUMMY,
+			std::prev(emitter_list.end())
+		);
 	}
 
 	void Update(float delta) {
-		std::vector<Projectile> to_insert = player.Update(delta);
-		for (Projectile p_projectile : to_insert) {
-			player_projectile_list.push_back(p_projectile);
+		for (Projectile& pp : player.Update(delta)) {
+			player_projectile_list.push_back(pp);
 		}
-		std::vector<std::list<Projectile>::iterator> to_remove;
+		for (Emitter& emitter : emitter_list) {
+			for (Projectile& ep : emitter.Update(delta, player.position)) {
+				enemy_projectile_list.push_back(ep);
+			}
+		}
+		std::vector<std::list<Projectile>::iterator> pp_to_remove;
 		for (std::list<Projectile>::iterator it = player_projectile_list.begin(); it != player_projectile_list.end(); it = std::next(it)) {
 			if (it->Update(delta)) {
-				to_remove.push_back(it);
+				pp_to_remove.push_back(it);
 			}
 			else {
 				for (std::list<Destructible>::iterator d_it = destructible_list.begin(); d_it != destructible_list.end(); d_it = std::next(d_it)) {
 					if (it->Collide(d_it->position, d_it->GetRadius())) {
-						to_remove.push_back(it);
+						if (d_it->Hurt(0.0f)) {
+							if (d_it->ce_it != emitter_list.end()) {
+								emitter_list.erase(d_it->ce_it);
+							}
+							destructible_list.erase(d_it);
+						}
+						pp_to_remove.push_back(it);
 						break;
 					}
 				}
 			}
 		}
-		for (std::list<Projectile>::iterator it : to_remove) {
+		for (std::list<Projectile>::iterator it : pp_to_remove) {
 			player_projectile_list.erase(it);
 		}
+		std::vector<std::list<Projectile>::iterator> ep_to_remove;
+		for (std::list<Projectile>::iterator it = enemy_projectile_list.begin(); it != enemy_projectile_list.end(); it = std::next(it)) {
+			if (it->Update(delta)) {
+				ep_to_remove.push_back(it);
+			}
+			else if (it->Collide(player.position, PLAYER_HITBOX_RADIUS)) {
+			}
+		}
+		for (std::list<Projectile>::iterator it : ep_to_remove) {
+			enemy_projectile_list.erase(it);
+		}
 	}
-	void Draw() {
+
+	void Draw(void) {
 		for (std::list<Destructible>::iterator it = destructible_list.begin(); it != destructible_list.end(); it = std::next(it)) {
 			it->Draw();
 		}
