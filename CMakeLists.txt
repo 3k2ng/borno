@@ -14,8 +14,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_subdirectory(libs/raylib)
 set(LIBRARIES ${LIBRARIES} raylib)
 
-set(INCLUDES ${INCLUDES} libs/raygui/src)
-
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
 	list(APPEND _CMAKE_CXX_FLAGS ${_CMAKE_CXX_FLAGS} "-Wall" "-pedantic")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
