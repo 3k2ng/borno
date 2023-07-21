@@ -6,6 +6,7 @@
 #include <optional>
 #include <queue>
 #include <functional>
+#include <memory>
 
 #include <iostream>
 
@@ -15,31 +16,15 @@
 #include "destructible.h"
 #include "projectile.h"
 
-std::function<Vector2(float)> linear(Vector2 from, Vector2 velocity) {
-	return [=](float t) -> Vector2 { return Vector2Add(from, Vector2Scale(velocity, t)); };
-}
+#include "interpolate_fn.h"
+#include "spawn_fn.h"
 
-std::function<Vector2(float)> accelerated(Vector2 from, Vector2 velocity, Vector2 acceleration) {
-	return [=](float t) -> Vector2 { return Vector2Add(from, Vector2Add(Vector2Scale(velocity, t), Vector2Scale(acceleration, 0.5f * t * t))); };
-}
+constexpr float BASIC_PLAYER_SHOT_RADIUS = 8.0f;
+constexpr float BASIC_PLAYER_SHOT_SPEED = 800.0f;
 
-std::function<Vector2(float)> horizontal_bounce(Vector2 from, Vector2 velocity) {
-	bool nvx = velocity.x < 0;
-	return [=](float t) -> Vector2 {
-		float horizontal_distance = from.x + velocity.x * t - PLAYING_FIELD_TOP_LEFT.x;
-		int bounces = int(fabsf(horizontal_distance / PLAYING_FIELD_RECT.width)) + (nvx and horizontal_distance < 0) ? 1 : 0;
-		float local_distance = fmodf(fmodf(horizontal_distance, PLAYING_FIELD_RECT.width) + PLAYING_FIELD_RECT.width, PLAYING_FIELD_RECT.width);
-
-		return Vector2{ PLAYING_FIELD_TOP_LEFT.x + (bounces % 2 == 0 ? local_distance : PLAYING_FIELD_RECT.width - local_distance), from.y + velocity.y * t };
-	};
-}
-
-std::function<Vector2(float)> quadratic_bezier(Vector2 from, Vector2 to, Vector2 control, float travel_time = 1.0f) {
-	return [=](float u) -> Vector2 {
-		u /= travel_time;
-		return Vector2Lerp(Vector2Lerp(from, control, u), Vector2Lerp(control, to, u), u);
-	};
-}
+constexpr float SPLIT_PLAYER_SHOT_RADIUS = 8.0f;
+constexpr float SPLIT_PLAYER_SHOT_H_SPEED = 600.0f;
+constexpr float SPLIT_PLAYER_SHOT_V_SPEED = 600.0f;
 
 inline std::vector<Projectile> get_basic_player_shot(Vector2 position) {
 	return { Projectile{ BASIC_PLAYER_SHOT_RADIUS, RED, linear(position, Vector2{ 0.0f, -BASIC_PLAYER_SHOT_SPEED })} };
@@ -57,72 +42,6 @@ inline Destructible get_popcorn_0(Vector2 position, Vector2 direction, std::shar
 inline Destructible get_popcorn_1(Vector2 from, Vector2 to, Vector2 control, float travel_time, std::shared_ptr<Emitter> emitter = nullptr) {
 	return Destructible{ POPCORN_RADIUS, BLUE, quadratic_bezier(from, to, control, travel_time), POPCORN_HEALTH, emitter };
 }
-
-std::function<std::vector<ProjectileSpawner>(float, float, Vector2, Vector2)> single_aimed_shot(float cd) {
-	return [=](float et, float dt, Vector2 ep, Vector2 pp) -> std::vector<ProjectileSpawner> {
-		if (floorf((et + dt) / cd) > floorf(et / cd)) return {
-			ProjectileSpawner{
-				floorf((et + dt) / cd) * cd,
-				Projectile{ BASIC_ENEMY_SHOT_RADIUS, PURPLE, linear(ep, Vector2Scale(Vector2Normalize(Vector2Subtract(pp, ep)), BASIC_ENEMY_SHOT_SPEED)), 0.1f}
-			}
-		};
-		return {};
-	};
-}
-
-std::function<std::vector<ProjectileSpawner>(float, float, Vector2, Vector2)> linear_ring(int shots, float cd, float initial_angle = 0.0f) {
-	float segment_angle = 2.0f * PI / float(shots);
-	return [=](float et, float dt, Vector2 ep, Vector2 pp) -> std::vector<ProjectileSpawner> {
-		if (floorf((et + dt) / cd) > floorf(et / cd)) {
-			float tts = floorf((et + dt) / cd) * cd;
-			std::vector<ProjectileSpawner> pss;
-			for (int i = 0; i < shots; i++) {
-				float current_angle = initial_angle + float(i) * segment_angle;
-				pss.push_back(ProjectileSpawner{
-					tts,
-					Projectile{ BASIC_ENEMY_SHOT_RADIUS, PURPLE, linear(ep, Vector2{ cosf(current_angle) * BASIC_ENEMY_SHOT_SPEED, sinf(current_angle) * BASIC_ENEMY_SHOT_SPEED }), 0.1f}
-				});
-			}
-
-			return pss;
-		}
-		return {};
-	};
-}
-
-std::function<std::vector<ProjectileSpawner>(float, float, Vector2, Vector2)> linear_aim_ring_pattern(int shots, float radius, float cd, float initial_angle = 0.0f) {
-	float segment_angle = 2.0f * PI / float(shots);
-	return [=](float et, float dt, Vector2 ep, Vector2 pp) -> std::vector<ProjectileSpawner> {
-		if (floorf((et + dt) / cd) > floorf(et / cd)) {
-			float tts = floorf((et + dt) / cd) * cd;
-			std::vector<ProjectileSpawner> pss;
-			for (int i = 0; i < shots; i++) {
-				float current_angle = initial_angle + float(i) * segment_angle;
-				pss.push_back(ProjectileSpawner{
-					tts,
-					Projectile{ BASIC_ENEMY_SHOT_RADIUS, PURPLE, linear(Vector2{ ep.x + cosf(current_angle) * radius, ep.y + sinf(current_angle) * radius }, Vector2Scale(Vector2Normalize(Vector2Subtract(pp, ep)), BASIC_ENEMY_SHOT_SPEED)), 0.1f}
-					});
-			}
-
-			return pss;
-		}
-		return {};
-	};
-}
-
-struct DestructibleSpawner {
-	float cd_timer;
-	Destructible destructible_to_spawn;
-	bool Update(float delta) {
-		if (cd_timer <= 0.0f) {
-			return true;
-		}
-		if (cd_timer > 0.0f) {
-			cd_timer -= delta;
-		}
-		return false;
-	}
-};
 
 inline Vector2 get_input_vector(int neg_x, int pos_x, int neg_y, int pos_y) {
 	Vector2 input_direction;
@@ -245,7 +164,6 @@ struct Game {
 			if (it->Update(delta)) {
 				destructible_to_remove.push_back(it);
 			}
-
 		}
 		for (std::list<Destructible>::iterator it : destructible_to_remove) {
 			if (it->contained_emitter != nullptr) {
@@ -275,39 +193,126 @@ struct Game {
 int main(void)
 {
 	std::queue<DestructibleSpawner> test_level;
-	for (int i = 0; i < 8; i++) {
-		test_level.push(
-			DestructibleSpawner{
-				0.4f,
-				get_popcorn_1(
+
+	//test_level.push(
+	//	DestructibleSpawner{
+	//		0.01f,
+	//		Destructible{
+	//			POPCORN_RADIUS,
+	//			BLUE,
+	//			quadratic_bezier_with_pause(
+	//				PLAYING_FIELD_TOP_LEFT,
+	//				Vector2{ PLAYING_FIELD_BOTTOM_RIGHT.x, PLAYING_FIELD_TOP_LEFT.y },
+	//				Vector2Scale(Vector2Add(PLAYING_FIELD_TOP_LEFT, PLAYING_FIELD_BOTTOM_RIGHT), 0.5f),
+	//				2.0f,
+	//				1.0f,
+	//				3.0f
+	//			),
+	//			TESTING_DUMMY_HEALTH,
+	//			std::make_shared<Emitter>(
+	//				Emitter{
+	//					single_aimed_shot(0.2f)
+	//				}
+	//			)
+	//		}
+	//	}
+	//);
+
+	//test_level.push(
+	//	DestructibleSpawner{
+	//		5.0f,
+	//		Destructible{
+	//			POPCORN_RADIUS,
+	//			BLUE,
+	//			quadratic_bezier_with_pause(
+	//				PLAYING_FIELD_TOP_LEFT, 
+	//				Vector2{ PLAYING_FIELD_BOTTOM_RIGHT.x, PLAYING_FIELD_TOP_LEFT.y }, 
+	//				Vector2Scale(Vector2Add(PLAYING_FIELD_TOP_LEFT, PLAYING_FIELD_BOTTOM_RIGHT), 0.5f),
+	//				2.0f,
+	//				1.0f,
+	//				3.0f
+	//			),
+	//			TESTING_DUMMY_HEALTH,
+	//			std::make_shared<Emitter>(
+	//				Emitter{
+	//					linear_aim_ring_pattern(10, 50.0f, 1.0f, 0.0f)
+	//				}
+	//			)
+	//		}
+	//	}
+	//);
+
+	//test_level.push(
+	//	DestructibleSpawner{
+	//		5.0f,
+	//		Destructible{
+	//			POPCORN_RADIUS,
+	//			BLUE,
+	//			quadratic_bezier_with_pause(
+	//				PLAYING_FIELD_TOP_LEFT,
+	//				Vector2{ PLAYING_FIELD_BOTTOM_RIGHT.x, PLAYING_FIELD_TOP_LEFT.y },
+	//				Vector2Scale(Vector2Add(PLAYING_FIELD_TOP_LEFT, PLAYING_FIELD_BOTTOM_RIGHT), 0.5f),
+	//				2.0f,
+	//				1.0f,
+	//				3.0f
+	//			),
+	//			TESTING_DUMMY_HEALTH,
+	//			std::make_shared<Emitter>(
+	//				Emitter{
+	//					linear_ring(12, 1.0f, 0.0f)
+	//				}
+	//			)
+	//		}
+	//	}
+	//);
+
+	//test_level.push(
+	//	DestructibleSpawner{
+	//		5.0f,
+	//		Destructible{
+	//			POPCORN_RADIUS,
+	//			BLUE,
+	//			quadratic_bezier_with_pause(
+	//				PLAYING_FIELD_TOP_LEFT,
+	//				Vector2{ PLAYING_FIELD_BOTTOM_RIGHT.x, PLAYING_FIELD_TOP_LEFT.y },
+	//				Vector2Scale(Vector2Add(PLAYING_FIELD_TOP_LEFT, PLAYING_FIELD_BOTTOM_RIGHT), 0.5f),
+	//				2.0f,
+	//				1.0f,
+	//				3.0f
+	//			),
+	//			TESTING_DUMMY_HEALTH,
+	//			std::make_shared<Emitter>(
+	//				Emitter{
+	//					linear_spinny_ring(12, 2.5f, 0.0f, 2.0f, 0.5f, PI)
+	//				}
+	//			)
+	//		}
+	//	}
+	//);
+
+	test_level.push(
+		DestructibleSpawner{
+			0.01f,
+			Destructible{
+				POPCORN_RADIUS,
+				BLUE,
+				quadratic_bezier_with_pause(
 					PLAYING_FIELD_TOP_LEFT,
 					Vector2{ PLAYING_FIELD_BOTTOM_RIGHT.x, PLAYING_FIELD_TOP_LEFT.y },
-					Vector2{
-						(PLAYING_FIELD_OFFSET_HORIZONTAL_TILES + PLAYING_FIELD_HORIZONTAL_TILES / 2) * TILE_WIDTH,
-						(PLAYING_FIELD_OFFSET_VERTICAL_TILES + PLAYING_FIELD_VERTICAL_TILES / 2) * TILE_HEIGHT
-					},
-					1.8f,
-					std::make_shared<Emitter>(Emitter{single_aimed_shot(0.5f)}))
-			}
-		);
-	}
-	for (int i = 0; i < 2; i++) {
-		test_level.push(
-			DestructibleSpawner{
-				0.4f,
-				get_popcorn_1(
-					PLAYING_FIELD_TOP_LEFT,
-					Vector2{ PLAYING_FIELD_BOTTOM_RIGHT.x, PLAYING_FIELD_TOP_LEFT.y },
-					Vector2{
-						(PLAYING_FIELD_OFFSET_HORIZONTAL_TILES + PLAYING_FIELD_HORIZONTAL_TILES / 2) * TILE_WIDTH,
-						(PLAYING_FIELD_OFFSET_VERTICAL_TILES + PLAYING_FIELD_VERTICAL_TILES / 2) * TILE_HEIGHT
-					},
-					1.8f,
-					std::make_shared<Emitter>(Emitter{linear_aim_ring_pattern(7, 50.0f, 0.5f)})
+					Vector2Scale(Vector2Add(PLAYING_FIELD_TOP_LEFT, PLAYING_FIELD_BOTTOM_RIGHT), 0.5f),
+					2.0f,
+					1.0f,
+					3.0f
+				),
+				TESTING_DUMMY_HEALTH,
+				std::make_shared<Emitter>(
+					Emitter{
+						linear_spinny_ring(12, 2.5f, 0.0f, 2.0f, 0.1f, PI)
+					}
 				)
 			}
-		);
-	}
+		}
+	);
 
 	Game game(test_level);
 

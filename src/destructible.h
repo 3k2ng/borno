@@ -3,6 +3,8 @@
 #include "raylib.h"
 #include "raymath.h"
 
+#include <memory>
+
 #include "emitter.h"
 
 constexpr float TESTING_DUMMY_RADIUS = 20.f;
@@ -48,5 +50,19 @@ struct Destructible {
 
 	inline Vector2 GetPosition() {
 		return interpolate(et);
+	}
+};
+
+struct DestructibleSpawner {
+	float cd_timer;
+	Destructible destructible_to_spawn;
+	bool Update(float delta) {
+		if (cd_timer <= 0.0f) {
+			return true;
+		}
+		if (cd_timer > 0.0f) {
+			cd_timer -= delta;
+		}
+		return false;
 	}
 };

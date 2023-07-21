@@ -3,19 +3,13 @@
 #include "raylib.h"
 #include "raymath.h"
 
+#include <functional>
+
+#include "config.h"
+
 inline float sqr(float f) {
 	return f * f;
 }
-
-constexpr float BASIC_PLAYER_SHOT_RADIUS = 8.0f;
-constexpr float BASIC_PLAYER_SHOT_SPEED = 800.0f;
-
-constexpr float SPLIT_PLAYER_SHOT_RADIUS = 8.0f;
-constexpr float SPLIT_PLAYER_SHOT_H_SPEED = 600.0f;
-constexpr float SPLIT_PLAYER_SHOT_V_SPEED = 600.0f;
-
-constexpr float BASIC_ENEMY_SHOT_RADIUS = 8.0f;
-constexpr float BASIC_ENEMY_SHOT_SPEED = 400.0f;
 
 struct Projectile {
 	float radius;

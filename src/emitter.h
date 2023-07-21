@@ -3,6 +3,9 @@
 #include "raylib.h"
 #include "raymath.h"
 
+#include <queue>
+#include <memory>
+
 #include "projectile.h"
 
 constexpr float TESTING_EMITTER_SHOT_CD = 1.0f;
